@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import PIL.Image
 from google.protobuf import text_format
+import matplotlib.pyplot as plt
 
 import caffe
 
@@ -24,7 +25,7 @@ def gram_matrix(activations):
     reshaped = activations.reshape(shape[0], shape[1] * shape[2])
     gram = np.dot(reshaped, reshaped.T)
 
-    return gram / (shape[0] ** 2 * shape[1] * shape[2])
+    return gram / (shape[0] * shape[1] * shape[2]) ** 2
 
 def style_representation(net, img, layers):
     img = preprocess(net, img)
@@ -43,7 +44,7 @@ def style_representation(net, img, layers):
 def style_grad(style, activations):
     gram = gram_matrix(activations)
     d = style - gram
-    loss = np.mean(d * d)
+    loss = np.sum(d * d)
     logging.info('Style loss %.5g', loss)
     shape = activations.shape
     activations = activations.reshape(shape[0], shape[1] * shape[2])
@@ -64,7 +65,7 @@ def info_representation(net, img, end):
 def info_grad(info, activations):
     d = info - activations
     loss = d * d
-    logging.info('Info loss %.5g', np.mean(loss))
+    logging.info('Info loss %.5g', np.sum(loss))
 
     return d
 
@@ -87,9 +88,10 @@ class Adadelta(object):
 def combine_images(info_image, style_image, models_dir, output_dir, info_weight=2.5, iterations=400):
     layers = ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1']
     prev_layers = ['data'] + layers[:-1]
-    weights = [1.0 / len(layers)] * len(layers)
+    unnormalized_weights = [1.0, 1.5, 3.0, 5.0, 30.0]
+    weights = [w / len(layers) for w in unnormalized_weights]
 
-    info_layer = 'relu3_1'
+    info_layer = 'relu4_1'
 
     optimizer = Adadelta()
     imagenet_mean = np.float32([104.0, 116.0, 122.0])
@@ -99,7 +101,7 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
         'bb2b4fe0a9bb0669211cf3d0bc949dfdda173e9e/VGG_ILSVRC_19_layers_deploy.prototxt')
 
     param_fn = os.path.join(models_dir, 'vggnet.caffemodel')
-    ensure_file(param_fn, 'http://www.robots.ox.ac.uk/~vgg/software/very_deep/caffe/VGG_ILSVRC_19_layers.caffemodel')
+    ensure_file(param_fn, 'http://bethgelab.org/media/uploads/deeptextures/vgg_normalised.caffemodel')
 
     #original model requires some patching
     #first, allow gradient propagation to data blob
@@ -133,7 +135,7 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
     info = info_representation(net, info_image, info_layer)
 
     means = [np.mean(channel) for channel in np.rollaxis(style_image, 2)]
-    img = np.random.uniform(low=-10.0, high=10.0, size=info_image.shape) + np.asarray(means, dtype=np.float32)
+    img = np.random.uniform(low=0, high=255., size=info_image.shape)# + np.asarray(means, dtype=np.float32)
     src = net.blobs['data']
     data = preprocess(net, img)
     src.reshape(1, *data.shape)
@@ -158,7 +160,7 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
         
         src = net.blobs['data']
         grad = src.diff[0]
-        update = optimizer.get_update(3e-5 * grad)
+        update = optimizer.get_update(5e7 * grad)
         src.data[0] += update
         logging.info('Iteration %d completed', i)
         bias = net.transformer.mean['data']

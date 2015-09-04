@@ -16,8 +16,8 @@ parser.add_argument('--models_dir', dest='models_dir', default='models',
 parser.add_argument('--output_dir', dest='output_dir', default='output',
     help='Directory used to save produced images')
 
-parser.add_argument('--info_weight', dest='info_weight', type=float, default=2.5,
-    help='Ratio of info/style weights in resulting image. Should be in range 1 to 10 for best results')
+parser.add_argument('--info_weight', dest='info_weight', type=float, default=1e-7,
+    help='Ratio of info/style weights in resulting image. Should be close to 1e-7 for best results')
 
 parser.add_argument('--iterations', dest='iterations', type=int, default=400,
     help='Number of gradient descent steps. 400 is a good value to start with')
