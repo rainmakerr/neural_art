@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import PIL.Image
 from google.protobuf import text_format
-import matplotlib.pyplot as plt
 
 import caffe
 
@@ -70,7 +69,7 @@ def info_grad(info, activations):
     return d
 
 class Adadelta(object):
-    def __init__(self, decay=0.95, epsilon=1e-6):
+    def __init__(self, decay=0.05, epsilon=1e-6):
         self.decay = decay
         self.epsilon = epsilon
         
@@ -80,15 +79,19 @@ class Adadelta(object):
             self.accumulated_update = np.zeros_like(gradient)
 
         self.accumulated_gradient = (1 - self.decay) * self.accumulated_gradient + self.decay * gradient * gradient
-        update = np.sqrt(self.accumulated_update + self.epsilon) / np.sqrt(self.accumulated_update + self.epsilon) * gradient
+        update = np.sqrt(self.accumulated_update + self.epsilon) / np.sqrt(self.accumulated_gradient + self.epsilon) * gradient
         self.accumulated_update = (1 - self.decay) * self.accumulated_update + self.decay * update * update
 
-        return update
+        logging.info('Accumulated update: %.5g, gradient: %.5g', np.mean(self.accumulated_update), np.mean(self.accumulated_gradient))
 
-def combine_images(info_image, style_image, models_dir, output_dir, info_weight=2.5, iterations=400):
+        return 1000 * update
+
+def combine_images(info_image, style_image, models_dir, output_dir, info_weight=1e-7, iterations=400):
+    np.random.seed(1337)
+
     layers = ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1']
     prev_layers = ['data'] + layers[:-1]
-    unnormalized_weights = [1.0, 1.5, 3.0, 5.0, 30.0]
+    unnormalized_weights = [1.0, 1.5, 3.0, 5.0, 50.0]
     weights = [w / len(layers) for w in unnormalized_weights]
 
     info_layer = 'relu4_1'
@@ -134,8 +137,7 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
 
     info = info_representation(net, info_image, info_layer)
 
-    means = [np.mean(channel) for channel in np.rollaxis(style_image, 2)]
-    img = np.random.uniform(low=0, high=255., size=info_image.shape)# + np.asarray(means, dtype=np.float32)
+    img = np.random.uniform(low=0., high=255., size=info_image.shape)
     src = net.blobs['data']
     data = preprocess(net, img)
     src.reshape(1, *data.shape)
@@ -160,7 +162,7 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
         
         src = net.blobs['data']
         grad = src.diff[0]
-        update = optimizer.get_update(5e7 * grad)
+        update = optimizer.get_update(1e7 * grad)
         src.data[0] += update
         logging.info('Iteration %d completed', i)
         bias = net.transformer.mean['data']
@@ -170,4 +172,4 @@ def combine_images(info_image, style_image, models_dir, output_dir, info_weight=
             filename = os.path.join(output_dir, '%d.jpg' % i)
             PIL.Image.fromarray(np.uint8(deprocess(net, src.data[0]))).save(filename)
 
-    return src.data[0]
+    return deprocess(net, src.data[0])
